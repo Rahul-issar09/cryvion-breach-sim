@@ -8,7 +8,9 @@ secrets/
 **/*.key
 
 # --- Documentation / markdown (excluded per project decision) ---
+# keep only the project README; ignore all other markdown
 *.md
+!README.md
 
 # --- Third-party clone (Wazuh docker) + its generated certs ---
 detection/wazuh/wazuh-docker/
