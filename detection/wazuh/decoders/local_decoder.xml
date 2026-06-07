@@ -1,0 +1,10 @@
+<!-- Cryvion custom decoder: parses CRYVION_SEC security events from the web app -->
+<decoder name="cryvion-sec">
+  <prematch>CRYVION_SEC </prematch>
+</decoder>
+
+<decoder name="cryvion-sec-fields">
+  <parent>cryvion-sec</parent>
+  <regex type="pcre2">event=(\S+) detail="([^"]*)" src=(\S+)</regex>
+  <order>crvevent, detail, srcip</order>
+</decoder>

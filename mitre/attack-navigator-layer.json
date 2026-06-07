@@ -1,0 +1,43 @@
+{
+  "name": "Cryvion Breach - Attack Chain",
+  "versions": { "attack": "15", "navigator": "4.9.5", "layer": "4.5" },
+  "domain": "enterprise-attack",
+  "description": "End-to-end breach lifecycle simulated against the Cryvion containerized enterprise. Green = executed and detected by the SIEM; orange = executed but not detected (network-layer visibility gap). Load at https://mitre-attack.github.io/attack-navigator/",
+  "sorting": 0,
+  "layout": { "layout": "side", "showName": true, "showID": true },
+  "hideDisabled": false,
+  "techniques": [
+    { "techniqueID": "T1595", "score": 30, "color": "#e67e22", "comment": "Stage 1: nmap scan. Executed; NOT detected (no NIDS) - documented gap.", "enabled": true },
+    { "techniqueID": "T1190", "score": 100, "color": "#2ecc71", "comment": "Stage 2/8: SQL injection (auth bypass + UNION). Detected: Wazuh rule 100110.", "enabled": true },
+    { "techniqueID": "T1110", "score": 100, "color": "#2ecc71", "comment": "Stage 2: Hydra brute force. Detected: rules 100112 + 100113 (correlation).", "enabled": true },
+    { "techniqueID": "T1059", "score": 100, "color": "#2ecc71", "comment": "Stage 3: OS command injection RCE. Detected: rule 100111.", "enabled": true },
+    { "techniqueID": "T1505.003", "score": 100, "color": "#2ecc71", "comment": "Stage 3: web shell upload (cmd.py). Detected: rule 100114 + FIM 550.", "enabled": true },
+    { "techniqueID": "T1136.001", "score": 80, "color": "#2ecc71", "comment": "Stage 4: backdoor local account (cryvionbd, uid=0). FIM-visible.", "enabled": true },
+    { "techniqueID": "T1053.003", "score": 80, "color": "#2ecc71", "comment": "Stage 4: cron persistence (/etc/cron.d). Detected: FIM rule 550.", "enabled": true },
+    { "techniqueID": "T1098.004", "score": 80, "color": "#2ecc71", "comment": "Stage 4: SSH authorized_keys persistence.", "enabled": true },
+    { "techniqueID": "T1611", "score": 60, "color": "#f1c40f", "comment": "Stage 5: docker.sock escape vector confirmed (breakout = stretch goal).", "enabled": true },
+    { "techniqueID": "T1552.001", "score": 100, "color": "#2ecc71", "comment": "Stage 6: credentials in files (db.conf) + env. Detected as RCE access.", "enabled": true },
+    { "techniqueID": "T1078", "score": 100, "color": "#2ecc71", "comment": "Stage 7: valid (reused) account svc-backup. Detected: sshd rule 5715.", "enabled": true },
+    { "techniqueID": "T1021.004", "score": 100, "color": "#2ecc71", "comment": "Stage 7: SSH lateral movement web->internal. Detected: sshd rule 5715.", "enabled": true },
+    { "techniqueID": "T1005", "score": 90, "color": "#2ecc71", "comment": "Stage 8: data from local system (PII + internal backup).", "enabled": true },
+    { "techniqueID": "T1041", "score": 60, "color": "#e67e22", "comment": "Stage 9: exfil over HTTP C2. Host-side RCE detected; network exfil = gap.", "enabled": true },
+    { "techniqueID": "T1048.003", "score": 40, "color": "#e67e22", "comment": "Stage 9: DNS-tunnelling demo. NOT detected (no NIDS) - documented gap.", "enabled": true }
+  ],
+  "gradient": {
+    "colors": ["#ffffff", "#2ecc71"],
+    "minValue": 0,
+    "maxValue": 100
+  },
+  "legendItems": [
+    { "label": "Executed + detected by SIEM", "color": "#2ecc71" },
+    { "label": "Executed, partial / stretch", "color": "#f1c40f" },
+    { "label": "Executed, NOT detected (network gap)", "color": "#e67e22" }
+  ],
+  "metadata": [
+    { "name": "project", "value": "Cryvion Networks breach lifecycle simulation" },
+    { "name": "techniques", "value": "15 across 9 ATT&CK tactics" }
+  ],
+  "showTacticRowBackground": true,
+  "tacticRowBackground": "#205b8f",
+  "selectTechniquesAcrossTactics": true
+}

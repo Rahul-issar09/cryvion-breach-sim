@@ -1,0 +1,40 @@
+# ===== Cryvion breach-sim — repo hygiene =====
+
+# --- Secrets / credentials (NEVER commit) ---
+.env
+*.env.local
+secrets/
+**/*.pem
+**/*.key
+
+# --- Documentation / markdown (excluded per project decision) ---
+*.md
+
+# --- Third-party clone (Wazuh docker) + its generated certs ---
+detection/wazuh/wazuh-docker/
+
+# --- Generated / runtime output ---
+attacker/loot/
+attacker/loot-hardened/
+forensics/output/
+*.tar
+*.tar.gz
+*.dump
+
+# --- Report deliverables & build outputs (regenerated from scripts) ---
+report/*.docx
+report/*.html
+report/*.pdf
+report/figures/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

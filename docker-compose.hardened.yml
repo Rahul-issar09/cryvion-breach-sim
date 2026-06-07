@@ -1,0 +1,131 @@
+# Cryvion Networks — HARDENED enterprise (the "after" state).
+# Defences vs. the vulnerable stack:
+#   * ModSecurity WAF (OWASP CRS) in front of the app   -> blocks SQLi / RCE
+#   * Zero-Trust micro-segmentation (4 networks)         -> blocks lateral movement
+#   * non-root, cap_drop ALL, no-new-privileges, ro FS   -> blocks priv-esc/escape
+#   * NO host Docker socket mounted                       -> no container breakout
+#   * DB password via Docker secret, creds file removed   -> nothing to harvest
+#   * sshd password auth disabled on internal host
+name: cryvion-hardened
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  mysql_root_password:
+    file: ./secrets/mysql_root_password.txt
+
+services:
+
+  # --- Edge WAF: the only attacker-facing component -------------------------
+  waf:
+    image: owasp/modsecurity-crs:nginx-alpine
+    container_name: cryvionh-waf
+    environment:
+      BACKEND: "http://app:8080"
+      SERVER_NAME: localhost
+      PORT: "8080"
+      MODSEC_RULE_ENGINE: "On"
+      PARANOIA: "2"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+      MODSEC_AUDIT_LOG: "/var/log/modsec_audit.log"
+    ports:
+      - "8080:8080"
+    networks:
+      edge_net:
+        aliases: [web-app]   # attacker scripts target "web-app" -> hits the WAF
+      app_net: {}
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [app]
+    restart: unless-stopped
+
+  # --- Hardened app: reachable only via the WAF; reaches only the DB --------
+  app:
+    build:
+      context: ./vulnerable-app
+      dockerfile: Dockerfile.hardened
+    container_name: cryvionh-app
+    environment:
+      DB_HOST: db
+      MYSQL_DATABASE: cryvion
+      MYSQL_USER: webapp
+      FLASK_DEBUG: "0"
+      APP_SECURE: "1"
+      FLASK_SECRET: change-me-in-prod
+    secrets: [db_password]
+    read_only: true
+    volumes:
+      - type: tmpfs
+        target: /tmp
+      - type: tmpfs
+        target: /app/uploads
+        tmpfs: { mode: 0o1777 }
+      - type: tmpfs
+        target: /var/log/cryvion
+        tmpfs: { mode: 0o1777 }
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [app_net, data_net]   # NOT on edge_net or mgmt_net
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Database: only the app can reach it ----------------------------------
+  db:
+    image: mysql:8.0
+    container_name: cryvionh-db
+    environment:
+      MYSQL_DATABASE: cryvion
+      MYSQL_USER: webapp
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+    secrets: [db_password, mysql_root_password]
+    volumes:
+      - hardened_db:/var/lib/mysql
+      - ./vulnerable-app/db-init:/docker-entrypoint-initdb.d:ro
+    networks: [data_net]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$(cat /run/secrets/mysql_root_password)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # --- Internal host: isolated on its own segment, key-only SSH -------------
+  internal-svc:
+    build:
+      context: ./internal-svc
+      dockerfile: Dockerfile.hardened
+    container_name: cryvionh-internal
+    networks: [mgmt_net]   # unreachable from edge/app/data -> no lateral movement
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE, SYS_CHROOT, AUDIT_WRITE, KILL, SETPCAP]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  # --- Attacker: same scripts, DMZ-only reach ------------------------------
+  attacker:
+    build: ./attacker
+    container_name: cryvionh-attacker
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./attacker/scripts:/scripts:ro
+      - ./attacker/loot-hardened:/loot
+    networks: [edge_net]
+    depends_on: [waf]
+
+networks:
+  edge_net: { driver: bridge }
+  app_net:  { driver: bridge }
+  data_net: { driver: bridge }
+  mgmt_net: { driver: bridge }
+
+volumes:
+  hardened_db:

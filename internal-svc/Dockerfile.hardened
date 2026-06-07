@@ -1,0 +1,19 @@
+# internal-svc — HARDENED. Password auth disabled (key-only), no reused creds.
+# Combined with network micro-segmentation, the web tier cannot even reach it.
+FROM debian:12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openssh-server ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /run/sshd
+
+ARG SSH_USER=svc-backup
+RUN useradd -m -s /bin/bash ${SSH_USER}
+
+# Hardened sshd: no password auth, no root login, key-based only.
+RUN sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

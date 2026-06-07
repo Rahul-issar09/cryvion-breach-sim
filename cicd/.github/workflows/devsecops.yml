@@ -1,0 +1,83 @@
+name: DevSecOps Pipeline
+
+# "Shift-left" security gates introduced after the breach. Each job fails the
+# build on high-severity findings, so a vulnerable image/config can't ship.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # 1) Dockerfile linting / best-practices
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint vulnerable + hardened Dockerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: cryvion-breach-sim/vulnerable-app/Dockerfile.hardened
+          failure-threshold: warning
+
+  # 2) Static analysis of the application code
+  sast-semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep SAST (OWASP + Python)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/python
+            p/command-injection
+            p/sql-injection
+
+  # 3) IaC / container config scanning (compose hardening, Dockerfiles)
+  iac-checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkov IaC scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: cryvion-breach-sim
+          framework: dockerfile,docker_compose
+          soft_fail: false
+
+  # 4) Image vulnerability scan (build hardened image, scan with Trivy)
+  image-trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build hardened app image
+        run: docker build -t cryvion-app:ci -f cryvion-breach-sim/vulnerable-app/Dockerfile.hardened cryvion-breach-sim/vulnerable-app
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: cryvion-app:ci
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  # 5) Dynamic scan (DAST) of the running hardened app behind the WAF
+  dast-zap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start hardened stack
+        run: |
+          cd cryvion-breach-sim
+          printf 'pw' > secrets/db_password.txt
+          printf 'rootpw' > secrets/mysql_root_password.txt
+          docker compose -f docker-compose.hardened.yml up -d --build
+          sleep 45
+      - name: OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: "http://localhost:8080"

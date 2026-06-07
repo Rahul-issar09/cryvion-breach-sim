@@ -1,0 +1,80 @@
+# Cryvion Networks — VULNERABLE enterprise (the "before" state).
+# Three networks model the enterprise segmentation; web-app is intentionally
+# dual-homed (dmz + internal) so a single web compromise reaches the crown jewels.
+name: cryvion
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: cryvion-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cryvion}
+      MYSQL_USER: ${MYSQL_USER:-webapp}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-webapp123}
+    volumes:
+      - ./vulnerable-app/db-init:/docker-entrypoint-initdb.d:ro
+    networks: [internal_net]          # DB lives only on the internal segment
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web-app:
+    build: ./vulnerable-app
+    container_name: cryvion-web
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cryvion}
+      MYSQL_USER: ${MYSQL_USER:-webapp}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-webapp123}
+      FLASK_SECRET: ${FLASK_SECRET:-insecure-dev-secret}
+      APP_PORT: "8080"
+      WAZUH_MANAGER: host.docker.internal   # agent enrolls to the SIEM
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${APP_PORT:-8080}:8080"       # public-facing
+    volumes:
+      # VULN (priv-esc / breakout enabler, T1611): host Docker socket mounted in
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [dmz_net, internal_net]  # VULN: dual-homed across trust boundaries
+    depends_on:
+      db:
+        condition: service_healthy
+
+  internal-svc:
+    build:
+      context: ./internal-svc
+      args:
+        SSH_USER: ${SSH_USER:-svc-backup}
+        SSH_PASSWORD: ${SSH_PASSWORD:-Password1}
+    container_name: cryvion-internal
+    restart: unless-stopped
+    environment:
+      WAZUH_MANAGER: host.docker.internal   # agent enrolls to the SIEM
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [internal_net]           # not reachable from dmz directly
+    # no host port published — only reachable from inside internal_net
+
+  attacker:
+    build: ./attacker
+    container_name: cryvion-attacker
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./attacker/scripts:/scripts:ro
+      - ./attacker/loot:/loot
+    networks: [dmz_net]                # starts with DMZ reach only; must pivot inward
+    depends_on:
+      - web-app
+
+networks:
+  dmz_net:
+    driver: bridge
+  internal_net:
+    driver: bridge
