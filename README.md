@@ -35,21 +35,41 @@ after hardening.
 
 ## Architecture
 
-```
-                         Docker Desktop (Windows / WSL2)
- ┌───────────────────────────────────────────────────────────────────────┐
- │   [ attacker ] ── dmz_net ──► [ web-app ] (Flask, vulnerable)          │
- │                                    │ internal_net                       │
- │                                    ▼                                    │
- │                        [ db ]            [ internal-svc ]               │
- │                        MySQL + PII       SSH backup host                │
- │                                                                         │
- │   ── Wazuh SIEM (manager / indexer / dashboard + agents) ──            │
- └───────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    atk["attacker<br/>nmap · hydra · sqlmap"]
+
+    subgraph dmz["dmz_net (DMZ)"]
+        web["web-app<br/>Flask portal (vulnerable)"]
+    end
+
+    subgraph internal["internal_net"]
+        db["db<br/>MySQL + customer PII"]
+        svc["internal-svc<br/>SSH backup host"]
+    end
+
+    subgraph mon["monitoring"]
+        siem["Wazuh SIEM<br/>manager · indexer · dashboard"]
+    end
+
+    atk -->|"HTTP :8080"| web
+    web -->|"SQL"| db
+    web -->|"SSH pivot"| svc
+    siem -.->|"agents · logs"| web
+    siem -.->|"agents · logs"| svc
+
+    classDef vuln fill:#fdecea,stroke:#d64545,color:#1b2733;
+    classDef data fill:#fff4e6,stroke:#e67e22,color:#1b2733;
+    classDef monc fill:#eaf7ee,stroke:#1e9e54,color:#1b2733;
+    class web vuln;
+    class db,svc data;
+    class siem monc;
 ```
 
-The web app is intentionally **dual-homed** (DMZ + internal), so one web compromise
-bridges into the internal zone — the central flaw the hardened design removes.
+The **web-app is dual-homed** (`dmz_net` + `internal_net`): the attacker can reach
+only the DMZ, but the web tier bridges into the internal zone — so a single web
+compromise reaches the database and the internal host. The hardened design removes
+this flaw with Zero-Trust micro-segmentation.
 
 ## Tech stack
 
